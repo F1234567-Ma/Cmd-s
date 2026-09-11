@@ -1,5 +1,5 @@
 const axios = require("axios");
-const fs = require("fs-extra");
+const fs = require("fs");
 const path = require("path");
 const { createCanvas, loadImage } = require("canvas");
 
@@ -18,7 +18,7 @@ const driveUrls = [
   "https://drive.google.com/file/d/17ZGxPy-yfHec0PHupgio1idncnDbO-TM/view?usp=drivesdk"
 ];
 
-const LOCAL_BG_DIR = path.resolve(__dirname, "assets", "cache", "bg_pngs");
+const LOCAL_BG_DIR = String(path.resolve(__dirname, "assets", "cache", "bg_pngs"));
 
 const GITHUB_OWNER = "F1234567-Ma";
 const GITHUB_REPO = "V9-";
@@ -29,13 +29,14 @@ const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_RE
 let githubFileListCache = null;
 
 function driveIdToDirectUrl(shareUrl) {
-  if (typeof shareUrl !== "string") return "";
+  if (typeof shareUrl !== "string" || !shareUrl) return "";
   const match = shareUrl.trim().match(/\/d\/([a-zA-Z0-9_-]+)/);
   const id = match ? match[1] : shareUrl.trim();
   return `https://drive.google.com/uc?export=download&id=${id}`;
 }
 
 async function fetchBuffer(url, timeout = 10000) {
+  if (typeof url !== "string" || !url) throw new Error("URL must be a string");
   const res = await axios.get(url, {
     responseType: "arraybuffer",
     timeout,
@@ -53,14 +54,14 @@ async function getBgFromDrive(index) {
 }
 
 async function getBgFromLocal(index) {
-  await fs.ensureDir(LOCAL_BG_DIR);
-  const files = (await fs.readdir(LOCAL_BG_DIR))
-    .filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
+  if (!fs.existsSync(LOCAL_BG_DIR)) throw new Error("Local directory does not exist");
+  const files = fs.readdirSync(LOCAL_BG_DIR)
+    .filter((f) => typeof f === "string" && /\.(png|jpe?g|webp)$/i.test(f))
     .sort();
   const file = files[index];
   if (!file) throw new Error("No local bg at index " + index);
-  const filePath = String(path.join(LOCAL_BG_DIR, file));
-  return await fs.readFile(filePath);
+  const filePath = String(path.join(LOCAL_BG_DIR, String(file)));
+  return fs.readFileSync(filePath);
 }
 
 async function getBgFromGithub(index) {
@@ -70,12 +71,12 @@ async function getBgFromGithub(index) {
       headers: { "User-Agent": "Mozilla/5.0" }
     });
     githubFileListCache = res.data
-      .filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name))
+      .filter((f) => f && typeof f.name === "string" && /\.(png|jpe?g|webp)$/i.test(f.name))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
   const file = githubFileListCache[index];
-  if (!file) throw new Error("No github bg at index " + index);
-  return await fetchBuffer(file.download_url);
+  if (!file || !file.download_url) throw new Error("No github bg at index " + index);
+  return await fetchBuffer(String(file.download_url));
 }
 
 async function getRandomBackgroundBuffer() {
@@ -103,7 +104,7 @@ async function getRandomBackgroundBuffer() {
 }
 
 async function getAvatarBuffer(userID) {
-  const url = `https://graph.facebook.com/${userID}/picture?width=720&height=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`;
+  const url = `https://graph.facebook.com/${String(userID)}/picture?width=720&height=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`;
   return await fetchBuffer(url);
 }
 
@@ -126,19 +127,20 @@ function drawCoverImage(ctx, img, x, y, w, h) {
 }
 
 function drawGradientText(ctx, text, x, y, font, colors) {
+  const safeText = String(text || "");
   ctx.font = font;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const width = ctx.measureText(text).width;
+  const width = ctx.measureText(safeText).width;
   const gradient = ctx.createLinearGradient(x - width / 2, y, x + width / 2, y);
   colors.forEach((c, i) => gradient.addColorStop(i / (colors.length - 1), c));
 
   ctx.lineWidth = 6;
   ctx.strokeStyle = "rgba(20,0,30,0.55)";
-  ctx.strokeText(text, x, y);
+  ctx.strokeText(safeText, x, y);
 
   ctx.fillStyle = gradient;
-  ctx.fillText(text, x, y);
+  ctx.fillText(safeText, x, y);
 }
 
 async function buildWelcomeImage({ avatarBuffer, userName, threadName, memberCount, inviterName }) {
@@ -177,23 +179,28 @@ async function buildWelcomeImage({ avatarBuffer, userName, threadName, memberCou
   ctx.restore();
 
   let nameFont = 54;
+  const safeUserName = String(userName || "New Member");
+  const safeThreadName = String(threadName || "the group");
+  const safeMemberCount = String(memberCount || "1");
+  const safeInviterName = String(inviterName || "Group Link");
+
   ctx.font = `bold ${nameFont}px sans-serif`;
   const maxNameWidth = W - 80;
-  while (ctx.measureText(`Hey ${userName}`).width > maxNameWidth && nameFont > 26) {
+  while (ctx.measureText(`Hey ${safeUserName}`).width > maxNameWidth && nameFont > 26) {
     nameFont -= 2;
     ctx.font = `bold ${nameFont}px sans-serif`;
   }
 
-  drawGradientText(ctx, `Hey ${userName}`, W / 2, 335, `bold ${nameFont}px sans-serif`,
+  drawGradientText(ctx, `Hey ${safeUserName}`, W / 2, 335, `bold ${nameFont}px sans-serif`,
     ["#ff7eb3", "#ffd36e", "#7ee8fa"]);
 
-  drawGradientText(ctx, `Welcome To ${threadName}`, W / 2, 395, "bold 30px sans-serif",
+  drawGradientText(ctx, `Welcome To ${safeThreadName}`, W / 2, 395, "bold 30px sans-serif",
     ["#c77dff", "#ff9ecb"]);
 
-  drawGradientText(ctx, `Member #${memberCount}`, W / 2, 435, "bold 24px sans-serif",
+  drawGradientText(ctx, `Member #${safeMemberCount}`, W / 2, 435, "bold 24px sans-serif",
     ["#ffe66d", "#ffb86c"]);
 
-  drawGradientText(ctx, `Added By ${inviterName}`, W / 2, 470, "bold 20px sans-serif",
+  drawGradientText(ctx, `Added By ${safeInviterName}`, W / 2, 470, "bold 20px sans-serif",
     ["#9be7ff", "#c9ffbf"]);
 
   return canvas.toBuffer("image/png");
@@ -201,7 +208,7 @@ async function buildWelcomeImage({ avatarBuffer, userName, threadName, memberCou
 
 module.exports.config = {
   name: "welcome",
-  version: "1.0.70",
+  version: "1.0.72",
   author: "badhob",
   countDown: 5,
   role: 0,
@@ -271,25 +278,26 @@ module.exports.onStart = async function ({ api, event }) {
         inviterName: inviterDisplay
       });
 
-      const tmpDir = path.resolve(__dirname, "assets", "cache", "tmp");
-      await fs.ensureDir(tmpDir);
-      
-      const tmpPath = String(path.join(tmpDir, `welcome_${userID}_${Date.now()}.png`));
-      await fs.writeFile(tmpPath, imageBuffer);
-
-      if (typeof tmpPath === "string" && fs.existsSync(tmpPath)) {
-        await api.sendMessage(
-          {
-            attachment: fs.createReadStream(tmpPath)
-          },
-          threadID,
-          () => {
-            setTimeout(() => {
-              fs.unlink(tmpPath).catch(() => {});
-            }, 1000);
-          }
-        );
+      const tmpDir = String(path.resolve(__dirname, "assets", "cache", "tmp"));
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
       }
+
+      const tmpPath = String(path.join(tmpDir, `welcome_${String(userID)}_${Date.now()}.png`));
+      
+      fs.writeFileSync(tmpPath, imageBuffer);
+
+      await api.sendMessage(
+        { attachment: fs.createReadStream(tmpPath) },
+        threadID,
+        () => {
+          setTimeout(() => {
+            if (fs.existsSync(tmpPath)) {
+              fs.unlinkSync(tmpPath);
+            }
+          }, 2000);
+        }
+      );
     }
   } catch (err) {
     console.log("[welcome] event error:", err);
